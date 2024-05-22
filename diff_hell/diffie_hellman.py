@@ -1,6 +1,8 @@
 from cryptography.hazmat.primitives.asymmetric import dh
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.backends import default_backend
 import base64
 import os
@@ -34,31 +36,59 @@ def derive_key(shared_key, salt=None, length=32):
     key = kdf.derive(shared_key)
     return key, salt
 
+def encrypt_message(key, plaintext):
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+    return nonce + ciphertext
+
+def decrypt_message(key, ciphertext):
+    aesgcm = AESGCM(key)
+    nonce = ciphertext[:12]
+    encrypted_message = ciphertext[12:]
+    return aesgcm.decrypt(nonce, encrypted_message, None)
+
 if __name__ == "__main__":
-    # generate common parameters
+    #example of excange
+    
+    num_participants = 5  # number of participants
+    participants = []
+
+    # generate parameters
     parameters = generate_parameters()
-    print(parameters)
 
-    # user A generates their private and public keys
-    private_key_A = generate_private_key(parameters)
-    public_key_A = generate_public_key(private_key_A)
-    print('Stage 1 - ok')
+    # generate private and public keys for each participant
+    for i in range(num_participants):
+        private_key = generate_private_key(parameters)
+        public_key = generate_public_key(private_key)
+        participants.append((private_key, public_key))
 
-    # user B generates their private and public keys
-    private_key_B = generate_private_key(parameters)
-    public_key_B = generate_public_key(private_key_B)
-    print('Stage 2 - ok')
+    # first participant generates shared keys with all other participants
+    shared_keys = []
+    for i in range(1, num_participants):
+        shared_key = generate_shared_key(participants[0][0], participants[i][1])
+        shared_keys.append(shared_key)
 
-    # exchange public keys and generate the shared key
-    shared_key_A = generate_shared_key(private_key_A, public_key_B)
-    shared_key_B = generate_shared_key(private_key_B, public_key_A)
-    print('Stage 3 - ok')
+    # derive symmetric keys
+    symmetric_keys = []
+    salts = []
+    for shared_key in shared_keys:
+        symmetric_key, salt = derive_key(shared_key)
+        symmetric_keys.append(symmetric_key)
+        salts.append(salt)
 
-    # derive the symmetric keys from the shared keys
-    symmetric_key_A, salt_A = derive_key(shared_key_A)
-    symmetric_key_B, salt_B = derive_key(shared_key_B, salt_A)  
-    print('Stage 4 - ok')
+    # first participant generates a random key K
+    K = os.urandom(32)
 
-    # both keys should be the same
-    assert symmetric_key_A == symmetric_key_B
-    print("Symmetric keys match and are ready for encryption.")
+    # first participant encrypts K with each symmetric key and broadcasts them
+    encrypted_keys = []
+    for symmetric_key in symmetric_keys:
+        encrypted_K = encrypt_message(symmetric_key, K)
+        encrypted_keys.append(encrypted_K)
+
+    # each participant decrypts their own encrypted version of K
+    for i in range(1, num_participants):
+        decrypted_K = decrypt_message(symmetric_keys[i-1], encrypted_keys[i-1])
+        assert decrypted_K == K
+
+    print("All participants have successfully derived the shared key K.")
