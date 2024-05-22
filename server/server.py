@@ -4,8 +4,15 @@ import json
 
 connected_users = {}
 
+lobbyState = "lobby"
+preparingState = "preparing"
+chatState = "chat"
+
+current_state = lobbyState
+
 
 async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
+    global current_state
     try:
         # Receive initial message containing user info
         user_info = await websocket.recv()
@@ -14,16 +21,18 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
         print(f"User connected: {user_info}")
 
         async for message in websocket:
-            m = f"{user_info['username']} ({websocket.remote_address}): {message}"
-            print(f"{m}")
-            await websocket.send(f"Echo: {message}")
-            await broadcast(m, websocket)
+            data = json.loads(message)
+            if current_state == chatState:
+                await broadcast(data, websocket)
+            elif current_state == preparingState:
+                await websocket.send(json.dumps({"error": "Chat is preparing"}))
+            else:
+                await websocket.send(json.dumps({"error": "Chat has not started yet"}))
     except websockets.ConnectionClosed as e:
         print(
             f"Client disconnected: {websocket.remote_address} with code {e.code} and reason: {e.reason}"
         )
     finally:
-        # Remove the user when they disconnect
         if websocket in connected_users:
             print(f"Connection with {connected_users[websocket]} closed")
             del connected_users[websocket]
@@ -38,9 +47,18 @@ async def broadcast(message, sender=None):
             await asyncio.wait(destinations)
 
 
+async def handle_start_command():
+    global current_state
+    current_state = preparingState
+    await broadcast(json.dumps({"state": current_state}))
+
+
 async def terminal_input(stop_event):
     while True:
         command = await asyncio.to_thread(input, "")
+        if command.lower() == "start" and current_state == "lobby":
+            await handle_start_command()
+            print("Transitioning to chat state...")
         if command.lower() == "stop":
             print("Stopping server...")
             stop_event.set()
