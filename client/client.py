@@ -1,13 +1,21 @@
 import asyncio
-from websockets.sync.client import connect
+import websockets
+import json
 
 
-def hello():
-    with connect("ws://localhost:8090") as websocket:
-        websocket.send("Hello world!")
-        message = websocket.recv()
-        print(f"Received: {message}")
+async def send_messages():
+    uri = "ws://localhost:8090"
+    async with websockets.connect(uri) as websocket:
+        # Send identifying information upon connection
+        user_info = {"username": "user123", "info": "Additional info if needed"}
+        await websocket.send(json.dumps(user_info))
+
+        while True:
+            await websocket.send("Hello world!")
+            message = await websocket.recv()
+            print(f"Received: {message}")
+            await asyncio.sleep(5)  # Wait for 5 seconds before sending the next message
 
 
 if __name__ == "__main__":
-    hello()
+    asyncio.run(send_messages())
