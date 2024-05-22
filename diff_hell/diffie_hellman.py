@@ -68,6 +68,13 @@ if __name__ == "__main__":
     for i in range(1, num_participants):
         shared_key = generate_shared_key(participants[0][0], participants[i][1])
         shared_keys.append(shared_key)
+        
+    # all other participants generate shared key with first participant
+    shared_keys_others_to_first = []
+    for i in range(1, num_participants):
+        shared_key = generate_shared_key(participants[i][0], participants[0][1])
+        shared_keys_others_to_first.append(shared_key)
+        
 
     # derive symmetric keys
     symmetric_keys = []
@@ -76,6 +83,14 @@ if __name__ == "__main__":
         symmetric_key, salt = derive_key(shared_key)
         symmetric_keys.append(symmetric_key)
         salts.append(salt)
+        
+    # derive symmetric keys for others
+    symmetric_keys_others_to_first = []
+    salts_others_others_to_first = []
+    for i, shared_key in enumerate(shared_keys_others_to_first):
+        symmetric_key, salt = derive_key(shared_key, salt=salts[i])
+        symmetric_keys_others_to_first.append(symmetric_key)
+        salts_others_others_to_first.append(salt)
 
     # first participant generates a random key K
     K = os.urandom(32)
@@ -88,7 +103,7 @@ if __name__ == "__main__":
 
     # each participant decrypts their own encrypted version of K
     for i in range(1, num_participants):
-        decrypted_K = decrypt_message(symmetric_keys[i-1], encrypted_keys[i-1])
+        decrypted_K = decrypt_message(symmetric_keys_others_to_first[i-1], encrypted_keys[i-1])
         assert decrypted_K == K
 
     print("All participants have successfully derived the shared key K.")
