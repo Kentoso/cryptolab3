@@ -5,7 +5,8 @@ import json
 connected_users = {}
 
 lobbyState = "lobby"
-preparingState = "preparing"
+preparingOneState = "preparing_1"
+preparingTwoState = "preparing_2"
 chatState = "chat"
 
 current_state = lobbyState
@@ -14,6 +15,17 @@ current_state = lobbyState
 async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
     global current_state
     try:
+        if current_state != lobbyState:
+            await websocket.send(
+                json.dumps(
+                    {
+                        "error": f"No new connections allowed, current state is {current_state}"
+                    }
+                )
+            )
+            await websocket.close()
+            return
+
         # Receive initial message containing user info
         user_info = await websocket.recv()
         user_info = json.loads(user_info)
@@ -24,8 +36,41 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
             data = json.loads(message)
             if current_state == chatState:
                 await broadcast(data, websocket)
-            elif current_state == preparingState:
-                await websocket.send(json.dumps({"error": "Chat is preparing"}))
+            elif current_state == preparingOneState:
+                if "state" in data and data["state"] == preparingTwoState:
+                    current_state = preparingTwoState
+                    encrypted_K = data["encrypted_K"]
+                    for user in connected_users:
+                        if user != websocket:
+                            await user.send(
+                                json.dumps(
+                                    {
+                                        "state": current_state,
+                                        "encrypted_K": encrypted_K[
+                                            connected_users[user]["username"]
+                                        ],
+                                        "first_user_public_key": data[
+                                            "first_user_public_key"
+                                        ],
+                                    }
+                                )
+                            )
+
+                elif "public_key" in data:
+                    connected_users[websocket]["public_key"] = data["public_key"]
+                    first_user = list(connected_users.keys())[0]
+                    if websocket != first_user:
+                        await first_user.send(
+                            json.dumps(
+                                {
+                                    "public_key": data["public_key"],
+                                    "username": user_info["username"],
+                                }
+                            )
+                        )
+            elif current_state == preparingTwoState:
+                first_user = list(connected_users.keys())[0]
+
             else:
                 await websocket.send(json.dumps({"error": "Chat has not started yet"}))
     except websockets.ConnectionClosed as e:
@@ -47,10 +92,21 @@ async def broadcast(message, sender=None):
             await asyncio.wait(destinations)
 
 
+async def broadcastToEveryoneExceptFirst(message):
+    if connected_users:  # Check if there are any connected users
+        destinations = [user.send(message) for user in connected_users[1:]]
+        if destinations:
+            await asyncio.wait(destinations)
+
+
 async def handle_start_command():
     global current_state
-    current_state = preparingState
-    await broadcast(json.dumps({"state": current_state}))
+    current_state = preparingOneState
+    await broadcast(
+        json.dumps(
+            {"state": current_state, "number_of_participants": len(connected_users)}
+        )
+    )
 
 
 async def terminal_input(stop_event):
@@ -59,7 +115,7 @@ async def terminal_input(stop_event):
         if command.lower() == "start" and current_state == "lobby":
             await handle_start_command()
             print("Transitioning to chat state...")
-        if command.lower() == "stop":
+        elif command.lower() == "stop":
             print("Stopping server...")
             stop_event.set()
             break
