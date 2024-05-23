@@ -6,7 +6,12 @@ from cryptography.hazmat.primitives.asymmetric.dh import DHParameterNumbers
 import os
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
+from controller import EncryptionController
 import base64
+
+encryptionController = None
+
+user_info = None
 
 lobbyState = "lobby"
 preparingOneState = "preparing_1"
@@ -53,6 +58,17 @@ def deserialize_public_key(public_key_str):
     return serialization.load_pem_public_key(public_bytes)
 
 
+async def send_user_messages(websocket):
+    global encryptionController, current_state
+
+    while current_state == chatState:
+        message = await asyncio.to_thread(input, "Enter message: ")
+        message_json = encryptionController.create_message_json(
+            message, user_info["username"]
+        )
+        await websocket.send(json.dumps(message_json))
+
+
 async def send_messages():
     global \
         participants_public_keys, \
@@ -64,7 +80,7 @@ async def send_messages():
         own_symmetric_key, \
         own_salt, \
         KEY
-    global public_key, private_key
+    global public_key, private_key, encryptionController, user_info
 
     uri = "ws://localhost:8090"
     async with websockets.connect(uri) as websocket:
@@ -103,11 +119,25 @@ async def send_messages():
                     )
 
                     KEY = decrypted_K
+                    encryptionController = EncryptionController(KEY)
                     print(KEY)
+                    print("EncryptionController")
+                    print(encryptionController)
 
                     await websocket.send(json.dumps({"state": chatState}))
                 if current_state == chatState:
                     print("Chat state reached")
+                    messageList = [
+                        "Hello, World!",
+                        "This is a test message",
+                        "Goodbye!",
+                    ]
+                    for message in messageList:
+                        message_json = encryptionController.create_message_json(
+                            message, user_info["username"]
+                        )
+                        await websocket.send(json.dumps(message_json))
+                    # asyncio.create_task(send_user_messages(websocket))
 
             elif current_state == preparingOneState:
                 # First user flow:
@@ -129,6 +159,7 @@ async def send_messages():
                 if processed_number_of_participants >= number_of_participants - 1:
                     K = os.urandom(32)
                     KEY = K
+                    encryptionController = EncryptionController(KEY)
                     print(KEY)
                     await websocket.send(
                         json.dumps(
@@ -147,7 +178,14 @@ async def send_messages():
                         )
                     )
             elif current_state == chatState:
-                print(f"Received message: {data}")
+                json_data = json.loads(data)
+                encrypted_message = json_data["message"]
+                iv = json_data["init_vector"]
+                print("Encrypted Message")
+                print(encrypted_message)
+                decrypted_message = encryptionController.decrypt(iv, encrypted_message)
+                print("Decrypted Message")
+                print(decrypted_message)
 
 
 if __name__ == "__main__":

@@ -36,9 +36,7 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
 
         async for message in websocket:
             data = json.loads(message)
-            if current_state == chatState:
-                await broadcast(data, websocket)
-            elif current_state == preparingOneState:
+            if current_state == preparingOneState:
                 if "state" in data and data["state"] == preparingTwoState:
                     current_state = preparingTwoState
                     encrypted_K = data["encrypted_K"]
@@ -79,6 +77,10 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
                     current_state = chatState
                     for user in connected_users:
                         await user.send(json.dumps({"state": current_state}))
+            elif current_state == chatState:
+                print("Chat state reached")
+                print(data)
+                await broadcast(json.dumps(data), websocket)
 
             else:
                 await websocket.send(json.dumps({"error": "Chat has not started yet"}))
