@@ -40,6 +40,7 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
                 if "state" in data and data["state"] == preparingTwoState:
                     current_state = preparingTwoState
                     encrypted_K = data["encrypted_K"]
+
                     for user in connected_users:
                         if user != websocket:
                             await user.send(
@@ -60,6 +61,7 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
                     connected_users[websocket]["public_key"] = data["public_key"]
                     first_user = list(connected_users.keys())[0]
                     if websocket != first_user:
+                        print(first_user)
                         await first_user.send(
                             json.dumps(
                                 {

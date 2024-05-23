@@ -2,8 +2,10 @@ import asyncio
 import websockets
 import json
 import diffie_hellman as dh
+from cryptography.hazmat.primitives.asymmetric.dh import DHParameterNumbers
 import os
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 import base64
 
 lobbyState = "lobby"
@@ -13,7 +15,12 @@ chatState = "chat"
 
 current_state = lobbyState
 
-parameters = dh.generate_parameters()
+p = 0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AACAA68FFFFFFFFFFFFFFFF
+g = 2
+
+params_numbers = DHParameterNumbers(p, g)
+parameters = params_numbers.parameters(default_backend())
+
 private_key = dh.generate_private_key(parameters)
 public_key = dh.generate_public_key(private_key)
 
@@ -57,6 +64,7 @@ async def send_messages():
         own_symmetric_key, \
         own_salt, \
         KEY
+    global public_key, private_key
 
     uri = "ws://localhost:8090"
     async with websockets.connect(uri) as websocket:
@@ -90,8 +98,10 @@ async def send_messages():
                     )
                     own_symmetric_key, own_salt = dh.derive_key(shared_key)
                     decrypted_K = dh.decrypt_message(
-                        own_symmetric_key, data["encrypted_K"]
+                        own_symmetric_key,
+                        base64.b64decode(data["encrypted_K"].encode("utf-8")),
                     )
+
                     KEY = decrypted_K
                     print(KEY)
 
@@ -100,6 +110,10 @@ async def send_messages():
                 participants_public_keys[data["username"]] = deserialize_public_key(
                     data["public_key"]
                 )
+                print("Participants public keys:")
+                print(participants_public_keys[data["username"]])
+                print(public_key)
+                print(private_key)
                 participants_shared_keys[data["username"]] = dh.generate_shared_key(
                     private_key, participants_public_keys[data["username"]]
                 )
@@ -120,7 +134,9 @@ async def send_messages():
                                     public_key
                                 ),
                                 "encrypted_K": {
-                                    k: dh.encrypt_message(v, K)
+                                    k: base64.b64encode(
+                                        (dh.encrypt_message(v, K))
+                                    ).decode("utf-8")
                                     for k, v in participants_symmetric_keys.items()
                                 },
                             }
