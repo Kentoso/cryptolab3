@@ -11,9 +11,11 @@ chatState = "chat"
 
 current_state = lobbyState
 
+ready_users = 0
+
 
 async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
-    global current_state
+    global current_state, ready_users
     try:
         if current_state != lobbyState:
             await websocket.send(
@@ -71,7 +73,12 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str):
                             )
                         )
             elif current_state == preparingTwoState:
-                first_user = list(connected_users.keys())[0]
+                if "state" in data and data["state"] == chatState:
+                    ready_users += 1
+                if ready_users >= len(connected_users) - 1:
+                    current_state = chatState
+                    for user in connected_users:
+                        await user.send(json.dumps({"state": current_state}))
 
             else:
                 await websocket.send(json.dumps({"error": "Chat has not started yet"}))

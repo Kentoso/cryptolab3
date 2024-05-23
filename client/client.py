@@ -105,6 +105,10 @@ async def send_messages():
                     KEY = decrypted_K
                     print(KEY)
 
+                    await websocket.send(json.dumps({"state": chatState}))
+                if current_state == chatState:
+                    print("Chat state reached")
+
             elif current_state == preparingOneState:
                 # First user flow:
                 participants_public_keys[data["username"]] = deserialize_public_key(
